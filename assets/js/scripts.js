@@ -64,16 +64,19 @@ const repo = 'DevShedLabs/DeployPackages';
 
 const presetCategories = {
     databases:  {
-        name: "Databases",
-        url:  `https://cdn.jsdelivr.net/gh/${repo}@main/presets-databases.json`
+        name:  "Databases",
+        url:   `https://cdn.jsdelivr.net/gh/${repo}@main/presets-databases.json`,
+        purge: `https://purge.jsdelivr.net/gh/${repo}@main/presets-servers.json`
     },
     languages:  {
-        name: "Programming Languages",
-        url:  `https://cdn.jsdelivr.net/gh/${repo}@main/presets-languages.json`
+        name:  "Programming Languages",
+        url:   `https://cdn.jsdelivr.net/gh/${repo}@main/presets-languages.json`,
+        purge: `https://purge.jsdelivr.net/gh/${repo}@main/presets-languages.json`
     },
     webservers: {
-        name: "Web Servers",
-        url:  `https://cdn.jsdelivr.net/gh/${repo}@main/presets-servers.json`
+        name:  "Web Servers",
+        url:   `https://cdn.jsdelivr.net/gh/${repo}@main/presets-servers.json`,
+        purge: `https://purge.jsdelivr.net/gh/${repo}@main/presets-servers.json`
     }
 };
 
@@ -261,6 +264,10 @@ function AnsibleBuilder() {
         setLoading( prev => ( { ...prev, [ category ]: true } ) );
         try {
             const response = await fetch( presetCategories[ category ].url );
+
+           // console.log( presetCategories[ category ].url );
+            console.log( presetCategories[ category ].purge );
+
             if ( !response.ok ) throw new Error( `HTTP error! status: ${response.status}` );
             const categoryPresets = await response.json();
             setPresets( prev => ( { ...prev, [ category ]: categoryPresets } ) );
