@@ -1,18 +1,57 @@
+// Core package dependencies configuration
+const packageDependencies = {
+    'nginx':       {
+        repositories: [ 'deb https://nginx.org/packages/ubuntu/ focal nginx' ],
+        keys:         [ 'https://nginx.org/keys/nginx_signing.key' ],
+        packages:     []
+    },
+    'postgresql':  {
+        repositories: [ 'deb http://apt.postgresql.org/pub/repos/apt focal-pgdg main' ],
+        keys:         [ 'https://www.postgresql.org/media/keys/ACCC4CF8.asc' ],
+        packages:     []
+    },
+    'mongodb-org': {
+        repositories: [ 'deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse' ],
+        keys:         [ 'https://www.mongodb.org/static/pgp/server-6.0.asc' ],
+        packages:     []
+    },
+    'nodejs':      {
+        repositories: [ 'deb https://deb.nodesource.com/node_20.x focal main' ],
+        keys:         [ 'https://deb.nodesource.com/gpgkey/nodesource.gpg.key' ],
+        packages:     []
+    },
+    'docker-ce':   {
+        repositories: [ 'deb https://download.docker.com/linux/ubuntu focal stable' ],
+        keys:         [ 'https://download.docker.com/linux/ubuntu/gpg' ],
+        packages:     [ 'docker-ce', 'docker-ce-cli', 'containerd.io' ]
+    }
+};
+
+// Module field definitions
 const moduleFields = {
-    apt:     [
+    apt:            [
         { name: 'name', type: 'text', label: 'Package Name' },
         { name: 'state', type: 'select', options: [ 'present', 'absent', 'latest' ], label: 'State' },
         { name: 'update_cache', type: 'select', options: [ 'yes', 'no' ], label: 'Update Cache' }
     ],
-    service: [
+    apt_repository: [
+        { name: 'repo', type: 'text', label: 'Repository URL' },
+        { name: 'state', type: 'select', options: [ 'present', 'absent' ], label: 'State' },
+        { name: 'filename', type: 'text', label: 'Source File Name' }
+    ],
+    apt_key:        [
+        { name: 'url', type: 'text', label: 'Key URL' },
+        { name: 'state', type: 'select', options: [ 'present', 'absent' ], label: 'State' }
+    ],
+    service:        [
         { name: 'name', type: 'text', label: 'Service Name' },
         { name: 'state', type: 'select', options: [ 'started', 'stopped', 'restarted' ], label: 'State' },
         { name: 'enabled', type: 'select', options: [ 'yes', 'no' ], label: 'Enabled at Boot' }
     ],
-    command: [
+    command:        [
         { name: 'cmd', type: 'text', label: 'Command' }
     ],
-    file:    [
+    file:           [
         { name: 'path', type: 'text', label: 'Path' },
         { name: 'state', type: 'select', options: [ 'directory', 'touch', 'absent' ], label: 'State' },
         { name: 'mode', type: 'text', label: 'Mode' },
@@ -38,27 +77,96 @@ const presetCategories = {
     }
 };
 
-function TaskEditor( { task, index, onUpdate, onRemove } ) {
+// Task Editor Component
+function TaskEditor( { task, index, onUpdate, onRemove, tasks } ) {
     const getCurrentModule = () => {
         return Object.keys( task ).find( key => key !== 'name' );
     };
 
-    const updateTaskModule = ( module ) => {
-        const defaultParams = module === 'apt'
-                              ? { name: '', state: 'present' }
-                              : module === 'service'
-                                ? { name: '', state: 'started', enabled: 'yes' }
-                                : module === 'file'
-                                  ? { path: '', state: 'directory' }
-                                  : { cmd: '' };
+    const getDefaultParams = ( module ) => {
+        switch ( module ) {
+            case 'apt':
+                return { name: '', state: 'present', update_cache: 'yes' };
+            case 'apt_repository':
+                return { repo: '', state: 'present', filename: '' };
+            case 'apt_key':
+                return { url: '', state: 'present' };
+            case 'service':
+                return { name: '', state: 'started', enabled: 'yes' };
+            case 'file':
+                return { path: '', state: 'directory', mode: '0755' };
+            case 'command':
+                return { cmd: '' };
+            default:
+                return {};
+        }
+    };
 
+    const checkForDuplicatePackage = ( packageName ) => {
+        return tasks.some( ( t, i ) =>
+            i !== index &&
+            t.apt &&
+            t.apt.name === packageName
+        );
+    };
+
+    const handleDependencies = ( packageName ) => {
+        if ( packageDependencies[ packageName ] ) {
+            const deps    = packageDependencies[ packageName ];
+            const addDeps = window.confirm(
+                `Would you like to add the recommended dependencies for ${packageName}?`
+            );
+
+            if ( addDeps ) {
+                // Add repository keys first
+                deps.keys.forEach( url => {
+                    onUpdate( null, {
+                        name:    `Add GPG key for ${packageName}`,
+                        apt_key: { url, state: 'present' }
+                    }, true );
+                } );
+
+                // Then add repositories
+                deps.repositories.forEach( repo => {
+                    onUpdate( null, {
+                        name:           `Add repository for ${packageName}`,
+                        apt_repository: {
+                            repo,
+                            state:    'present',
+                            filename: packageName.split( '-' )[ 0 ]
+                        }
+                    }, true );
+                } );
+
+                // Finally add any additional required packages
+                deps.packages.forEach( pkg => {
+                    if ( !checkForDuplicatePackage( pkg ) ) {
+                        onUpdate( null, {
+                            name: `Install dependency ${pkg}`,
+                            apt:  { name: pkg, state: 'present', update_cache: 'yes' }
+                        }, true );
+                    }
+                } );
+            }
+        }
+    };
+
+    const updateTaskModule = ( module ) => {
         onUpdate( index, {
             name:       task.name,
-            [ module ]: defaultParams
+            [ module ]: getDefaultParams( module )
         } );
     };
 
     const updateTaskParam = ( module, param, value ) => {
+        if ( module === 'apt' && param === 'name' && value !== '' ) {
+            if ( checkForDuplicatePackage( value ) ) {
+                alert( `Package "${value}" is already in the task list!` );
+                return;
+            }
+            handleDependencies( value );
+        }
+
         onUpdate( index, {
             ...task,
             [ module ]: {
@@ -125,6 +233,7 @@ function TaskEditor( { task, index, onUpdate, onRemove } ) {
     );
 }
 
+// Main Component
 function AnsibleBuilder() {
     const [ playbookName, setPlaybookName ] = React.useState( 'my-playbook' );
     const [ hosts, setHosts ]               = React.useState( 'all' );
@@ -137,14 +246,12 @@ function AnsibleBuilder() {
     const outputRef                         = React.useRef( null );
 
     React.useEffect( () => {
-        // Load all preset categories
         Object.entries( presetCategories ).forEach( ( [ category ] ) => {
             loadPresetCategory( category );
         } );
     }, [] );
 
     React.useEffect( () => {
-        // Highlight syntax whenever the playbook changes
         if ( outputRef.current ) {
             Prism.highlightElement( outputRef.current );
         }
@@ -168,7 +275,7 @@ function AnsibleBuilder() {
     const addTask = ( task = null ) => {
         const newTask = task || {
             name: `task-${tasks.length + 1}`,
-            apt:  { name: '', state: 'present' }
+            apt:  { name: '', state: 'present', update_cache: 'yes' }
         };
         setTasks( [ ...tasks, newTask ] );
     };
@@ -177,16 +284,33 @@ function AnsibleBuilder() {
         setTasks( tasks.filter( ( _, i ) => i !== index ) );
     };
 
-    const updateTask = ( index, updates ) => {
-        const newTasks    = [ ...tasks ];
-        newTasks[ index ] = updates;
-        setTasks( newTasks );
+    const updateTask = ( index, updates, prepend = false ) => {
+        if ( index === null && prepend ) {
+            setTasks( [ updates, ...tasks ] );
+        } else {
+            const newTasks = [ ...tasks ];
+            if ( index !== null ) {
+                newTasks[ index ] = updates;
+                setTasks( newTasks );
+            }
+        }
     };
 
     const applyPreset = ( preset ) => {
+        const addedPackages = new Set();
+
         preset.tasks.forEach( task => {
             const module = Object.keys( task ).find( key => key !== 'name' );
-            if ( module ) {
+            if ( module === 'apt' && task.apt.name ) {
+                if ( !addedPackages.has( task.apt.name ) &&
+                    !tasks.some( t => t.apt && t.apt.name === task.apt.name ) ) {
+                    addedPackages.add( task.apt.name );
+                    addTask( {
+                        name:       task.name,
+                        [ module ]: task[ module ]
+                    } );
+                }
+            } else {
                 addTask( {
                     name:       task.name,
                     [ module ]: task[ module ]
@@ -305,6 +429,7 @@ function AnsibleBuilder() {
                                 index={index}
                                 onUpdate={updateTask}
                                 onRemove={removeTask}
+                                tasks={tasks}
                             />
                         ) )}
                     </div>
@@ -313,10 +438,10 @@ function AnsibleBuilder() {
                 <div className="panel">
                     <h2>Generated Playbook</h2>
                     <pre>
-                            <code ref={outputRef} className="language-yaml">
-                                {generatePlaybook()}
-                            </code>
-                        </pre>
+                        <code ref={outputRef} className="language-yaml">
+                            {generatePlaybook()}
+                        </code>
+                    </pre>
                     <button
                         className="copy-button"
                         onClick={copyToClipboard}
