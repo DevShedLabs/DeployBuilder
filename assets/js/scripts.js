@@ -245,9 +245,7 @@ function AnsibleBuilder() {
 
     return (
         <div>
-            <h1>Ansible Playbook Builder</h1>
-
-            <div className="container">
+            <div className="app-container">
                 <div className="panel">
                     <h2>Configuration</h2>
 
